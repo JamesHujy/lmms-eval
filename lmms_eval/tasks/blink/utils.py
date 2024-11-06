@@ -5,57 +5,38 @@ import pandas as pd
 from lmms_eval.filters.extraction import ExtendedRegexFilter
 from lmms_eval.filters.transformation import MapFilter
 
-def replace_image_tags(prompt):
-    def replacement(match):
-        nonlocal counter
-        counter += 1
-        return f"<image_{counter}>"
-    
-    counter = 0
-    new_prompt = re.sub(r"<image>", replacement, prompt)
-    
-    return new_prompt
+def blink_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+    return doc['prompt']
 
-def muir_doc_to_text(doc, lmms_eval_specific_kwargs=None):
-    question, choices = doc["question"], doc["options"]
-    len_choices = len(choices)
-    post_prompt = lmms_eval_specific_kwargs["post_prompt"]
-    pre_prompt = lmms_eval_specific_kwargs["pre_prompt"]
-    options = [chr(ord("A") + i) for i in range(len_choices)]
-    choices_str = "\n".join([f"{option}. {choice}" for option, choice in zip(options, choices)])
-    final_output = replace_image_tags(f"{pre_prompt}{question}\n{choices_str}{post_prompt}")
-    return final_output
-
-def muir_doc_to_visual(doc):
-    image_list = [image.convert("RGB") for image in doc["image_list"]]
+def blink_doc_to_visual(doc):
+    image_list = []
+    for i in range(1,5):
+        if doc[f'image_{i}'] is not None:
+            image_list.append(doc[f'image_{i}'].convert('RGB'))
     return image_list
 
 
-def muir_doc_to_target(doc):
+def blink_doc_to_target(doc):
     return doc["answer"]
 
 
-def muir_process_results(doc, result):
+def blink_process_results(doc, result):
     pred = result[0]
-    task = doc["task"]
+    task = doc["sub_task"]
     idx = doc["idx"]
-    image_relation = doc["image_relation"]
     answer = doc["answer"]
-    image_type = doc["image_type"]
 
     data_dict = {
         "pred": pred,
         "task": task,
         "idx": idx,
-        "image_relation": image_relation,
         "answer": answer,
-        "image_type": image_type,
     }
 
-    return {"muirbench_score_overall": data_dict}
+    return {"blink_score_overall": data_dict}
 
 
-def muir_aggregation(results):
+def blink_aggregation(results):
     task_num = {}
     score = 0
     task_score = {}
