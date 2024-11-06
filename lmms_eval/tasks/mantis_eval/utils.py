@@ -16,7 +16,7 @@ def replace_image_tags(prompt):
     
     return new_prompt
 
-def muir_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+def mantis_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     question, choices = doc["question"], doc["options"]
     len_choices = len(choices)
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
@@ -26,56 +26,52 @@ def muir_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     final_output = replace_image_tags(f"{pre_prompt}{question}\n{choices_str}{post_prompt}")
     return final_output
 
-def muir_doc_to_visual(doc):
-    image_list = [image.convert("RGB") for image in doc["image_list"]]
+def mantis_doc_to_visual(doc):
+    image_list = [image.convert("RGB") for image in doc["images"]]
     return image_list
 
 
-def muir_doc_to_target(doc):
+def mantis_doc_to_target(doc):
     return doc["answer"]
 
 
-def muir_process_results(doc, result):
+def mantis_process_results(doc, result):
     pred = result[0]
-    task = doc["task"]
-    idx = doc["idx"]
-    image_relation = doc["image_relation"]
+    category = doc["category"]
+    idx = doc["id"]
     answer = doc["answer"]
-    image_type = doc["image_type"]
 
     data_dict = {
         "pred": pred,
-        "task": task,
+        "category": category,
         "idx": idx,
-        "image_relation": image_relation,
         "answer": answer,
-        "image_type": image_type,
     }
 
-    return {"muirbench_score_overall": data_dict}
+    return {"mantis_score_overall": data_dict}
 
 
-def muir_aggregation(results):
-    task_num = {}
+def mantis_aggregation(results):
+    category_num = {}
     score = 0
-    task_score = {}
+    category_score = {}
     for result in results:
-        if result["task"] not in task_score:
-            task_score[result["task"]] = 0
+        if result["category"] not in category_score:
+            category_score[result["category"]] = 0
 
-        if result["task"] not in task_num:
-            task_num[result["task"]] = 0
+        if result["category"] not in category_num:
+            category_num[result["category"]] = 0
 
         if result["pred"].lower().strip() == result["answer"].lower().strip():
-            task_score[result["task"]] += 1
+            category_score[result["category"]] += 1
             score += 1
-        task_num[result["task"]] += 1
+        category_num[result["category"]] += 1
 
     score = score / len(results)
-    task_score = {k: v / task_num[k] for k, v in task_score.items()}
+    category_score = {k: v / category_num[k] for k, v in category_score.items()}
 
     print("=" * 50)
-    for k, v in task_score.items():
+    for k, v in category_score.items():
         print(f"{k} : {v:.2f}")
     print("=" * 50)
     return score
