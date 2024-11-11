@@ -41,22 +41,45 @@ def parse_options(options):
     return choices_str
 
 
-def construct_prompt(doc):
+def construct_prompt(doc, post_prompt=None):
     question = doc["question"]
+
     if doc["question_type"] == "multiple-choice":
         # Weirdly, data["options"] is a string in MMMU Huggingface dataset
         parsed_options = parse_options(ast.literal_eval(doc["options"]))
         # parsed_options already prepends a newline so no need to add space here
-        question = f"{question}\n{parsed_options}\n\n{MULTI_CHOICE_PROMPT}"
-    else:
-        question = f"{question}\n\n{OPEN_ENDED_PROMPT}"
+        question = f"{question}\n{parsed_options}\n\n"
+
+    if post_prompt is None:
+        if doc["question_type"] == "multiple-choice":
+            post_prompt = MULTI_CHOICE_PROMPT
+        else:
+            post_prompt = OPEN_ENDED_PROMPT
+
+    question = f"{question}\n\n{post_prompt}"
     return question
 
 
-def mmmu_doc_to_text(doc):
-    question = construct_prompt(doc)
-    if config["metadata"]["interleaved_format"]:
-        question = replace_images_tokens(question)
+#def mmmu_doc_to_text(doc):
+#    question = construct_prompt(doc)
+#    if config["metadata"]["interleaved_format"]:
+#        question = replace_images_tokens(question)
+#    return question
+
+COT_DOMAIN = ["Accounting", "Architecture_and_Engineering", "Economics", "Finance", "Marketing"]
+
+def mmmu_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+    if lmms_eval_specific_kwargs is None or doc["question_type"] != "multiple-choice" or extract_subset_name(doc["id"]) not in COT_DOMAIN:
+        question = construct_prompt(doc)
+        if config["metadata"]["interleaved_format"]:
+            question = replace_images_tokens(question)
+        return question
+
+    post_prompt = lmms_eval_specific_kwargs["post_prompt"]
+    if "question" in doc and "options" in doc:  # original operation
+        question = construct_prompt(doc, post_prompt)
+        if config["metadata"]["interleaved_format"]:
+            question = replace_images_tokens(question)
     return question
 
 
@@ -68,6 +91,41 @@ def mmmu_doc_to_visual(doc):
     visual = [doc[image_token].convert("RGB") for image_token in image_tokens]
     return visual
 
+def mmmu_process_results_cot(doc, results):
+    pred = results[0]
+    if doc["question_type"] == "multiple-choice":
+        index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
+        parsed_pred = parse_multi_choice_response(pred, all_choices, index2ans)
+        val = parsed_pred.split("\n")[-1]
+        val = val.removeprefix("Answer: ")
+        val = val.removeprefix("- Answer: ")
+        val = val.removeprefix("- Option ")
+        val = val.removeprefix("The correct answer is ")
+        val = val.removeprefix("##### The answer is ")
+        val = val.removeprefix("##### Therefore, the answer is ")
+        val = val.removeprefix("##### Therefore, the correct answer is ")
+        val = val.removeprefix("##### The correct answer is ")
+        val = val.removeprefix("##### Answer: ")
+        val = val.removeprefix("##### ")
+        val = val.removeprefix("- ")
+        val = val.removesuffix(".")
+        if any(val.startswith(c) for c in ["A", "B", "C", "D", "E"]):
+          val = val[0]
+        if val not in ["A", "B", "C", "D", "E"]:
+          print(val)
+        parsed_pred = val
+    else:
+        parsed_pred = parse_open_response(pred)
+
+
+    id = doc["id"]
+    mmmu_acc = {"id": id, "subdomain": extract_subset_name(doc["id"]), "question_type": doc["question_type"], "answer": doc["answer"], "parsed_pred": parsed_pred}
+    return {
+        "mmmu_acc": mmmu_acc,
+        "submission": {
+            id: pred,
+        },
+    }
 
 def mmmu_process_results(doc, results):
     pred = results[0]

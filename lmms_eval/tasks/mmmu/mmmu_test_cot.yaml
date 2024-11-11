@@ -1,0 +1,21 @@
+dataset_path: lmms-lab/MMMU
+task: "mmmu_test_cot"
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.mmmu_doc_to_visual
+doc_to_text: !function utils.mmmu_doc_to_text
+doc_to_target: "answer"
+# The return value of process_results will be used by metrics
+process_results: !function utils.mmmu_process_results_cot
+
+metric_list:
+  - metric: submission
+    aggregation: !function utils.mmmu_test_aggregate_results_for_submission
+    higher_is_better: true
+
+include: _default_template_yaml
+
+lmms_eval_specific_kwargs:
+  default:
+    pre_prompt: ""
+    post_prompt: "Answer with the option's letter from the given choices directly. Now let's think step by step to explain the answer and each step shall be separated by '#####' at the beginning. In the last line, answer the question using a single word or phrase."

@@ -13,4 +13,9 @@ metric_list:
     aggregation: !function utils.mmmu_test_aggregate_results_for_submission
     higher_is_better: true
 
-include: _default_template_yaml
+generation_kwargs:
+  max_new_tokens: 16
+
+metadata:
+  version: 0.0
+  interleaved_format: false
