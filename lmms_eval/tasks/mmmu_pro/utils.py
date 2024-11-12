@@ -71,12 +71,18 @@ def mmmu_pro_doc_to_visual(doc):
 # MMMU-PRO's all questions are multiple-choice questions
 def mmmu_pro_process_results(doc, results):
     pred = results[0]
-    if "question" in doc and "options" in doc:
-        index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
-        parsed_pred = parse_multi_choice_response(pred, all_choices, index2ans)
-    else:
-        parsed_pred = pred
-
+    if 'Answer:' in pred:
+        pattern = r'Answer: .*'
+        match = re.search(pattern, pred, re.DOTALL)
+        if match:
+            pred = match.group(0).replace('Answer:', '').strip()
+    if 'The answer is' in pred:
+        pattern = r'The answer is .*'
+        match = re.search(pattern, pred, re.DOTALL)
+        if match:
+            pred = match.group(0).replace('The answer is:', '').strip()
+    index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
+    parsed_pred = parse_multi_choice_response(pred.upper(), all_choices, index2ans)
     mmmu_acc = {"id": doc["id"], "subject": doc["subject"], "answer": doc["answer"], "parsed_pred": parsed_pred}
     return {"mmmu_acc": mmmu_acc}
 
@@ -273,8 +279,7 @@ def evaluate_mmmu(samples):
     if total_count == 0:
         return {"acc": 0}
     return judge_dict, {"acc": pred_correct / total_count}
-
-
+    
 def parse_multi_choice_response(response, all_choices, index2ans):
     """
     Parse the prediction from the generated response.
@@ -296,6 +301,11 @@ def parse_multi_choice_response(response, all_choices, index2ans):
     if len(candidates) == 0:
         for choice in all_choices:  # e.g., A B C D
             if f"{choice} " in response:
+                candidates.append(choice)
+
+    if len(candidates) == 0:
+        for choice in all_choices:  # e.g., $A $B $C $D
+            if f"${choice} " in response:
                 candidates.append(choice)
 
     if len(candidates) == 0:
