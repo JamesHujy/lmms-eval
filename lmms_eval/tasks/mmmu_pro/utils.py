@@ -47,13 +47,36 @@ def construct_prompt(doc, post_prompt="Answer with the option letter from the gi
     return question
 
 
+COT_DOMAIN = ["Accounting", "Architecture_and_Engineering", "Economics", "Finance", "Marketing"]
+
 def mmmu_pro_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+    if lmms_eval_specific_kwargs is None or doc["subject"] not in COT_DOMAIN:
+        question = construct_prompt(doc)
+        if config["metadata"]["interleaved_format"]:
+            question = replace_images_tokens(question)
+        return question
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
     if "question" in doc and "options" in doc:  # original operation
         question = construct_prompt(doc, post_prompt)
         if config["metadata"]["interleaved_format"]:
             question = replace_images_tokens(question)
     return question
+
+
+def mmmu_pro_doc_to_text2(doc, lmms_eval_specific_kwargs=None):
+    if doc["subject"] not in COT_DOMAIN:
+        return "Write out the multiple-choice question in the image and then solve it. First, write out the question, then write out the Options. The Options usually start with A, followed by B, C, D, ... and end with J. The last line of your response should be of the following format: 'Answer: $LETTER' (without quotes) where LETTER is one of options."
+    else:
+        return "Write out the multiple-choice question in the image and then solve it. First, write out the question, then write out the Options. The Options usually start with A, followed by B, C, D, ... and end with J. Now let's think step by step to explain the answer and each step shall be separated by '#####' at the beginning. The last line of your response should be of the following format: 'Answer: $LETTER' (without quotes) where LETTER is one of options."
+
+
+#def mmmu_pro_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+#    post_prompt = lmms_eval_specific_kwargs["post_prompt"]
+#    if "question" in doc and "options" in doc:  # original operation
+#        question = construct_prompt(doc, post_prompt)
+#        if config["metadata"]["interleaved_format"]:
+#            question = replace_images_tokens(question)
+#    return question
 
 
 def mmmu_pro_doc_to_visual(doc):
@@ -85,6 +108,45 @@ def mmmu_pro_process_results(doc, results):
     parsed_pred = parse_multi_choice_response(pred.upper(), all_choices, index2ans)
     mmmu_acc = {"id": doc["id"], "subject": doc["subject"], "answer": doc["answer"], "parsed_pred": parsed_pred}
     return {"mmmu_acc": mmmu_acc}
+
+def mmmu_process_results_cot(doc, results):
+    pred = results[0]
+
+    if 'Answer:' in pred:
+        pattern = r'Answer: .*'
+        match = re.search(pattern, pred, re.DOTALL)
+        if match:
+            pred = match.group(0).replace('Answer:', '').strip()
+    if 'The answer is' in pred:
+        pattern = r'The answer is .*'
+        match = re.search(pattern, pred, re.DOTALL)
+        if match:
+            pred = match.group(0).replace('The answer is:', '').strip()
+    index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
+    parsed_pred = parse_multi_choice_response(pred.upper(), all_choices, index2ans)
+
+    val = parsed_pred.split("\n")[-1]
+    val = val.removeprefix("Answer: ")
+    val = val.removeprefix("- Answer: ")
+    val = val.removeprefix("- Option ")
+    val = val.removeprefix("The correct answer is ")
+    val = val.removeprefix("##### The answer is ")
+    val = val.removeprefix("##### Therefore, the answer is ")
+    val = val.removeprefix("##### Therefore, the correct answer is ")
+    val = val.removeprefix("##### The correct answer is ")
+    val = val.removeprefix("##### Answer: ")
+    val = val.removeprefix("##### ")
+    val = val.removeprefix("- ")
+    val = val.removesuffix(".")
+    if any(val.startswith(c) for c in ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]):
+        val = val[0]
+    if val not in ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]:
+        print(val)
+    parsed_pred = val
+
+    mmmu_acc = {"id": doc["id"], "subject": doc["subject"], "answer": doc["answer"], "parsed_pred": parsed_pred, "pred": results[0]}
+    return {"mmmu_acc": mmmu_acc}
+
 
 
 def mmmu_pro_composite_process_results(doc, results):
@@ -279,7 +341,8 @@ def evaluate_mmmu(samples):
     if total_count == 0:
         return {"acc": 0}
     return judge_dict, {"acc": pred_correct / total_count}
-    
+
+
 def parse_multi_choice_response(response, all_choices, index2ans):
     """
     Parse the prediction from the generated response.
@@ -293,19 +356,25 @@ def parse_multi_choice_response(response, all_choices, index2ans):
     index_ans = True
     ans_with_brack = False
     candidates = []
-    for choice in all_choices:  # e.g., (A) (B) (C) (D)
-        if f"({choice})" in response:
-            candidates.append(choice)
-            ans_with_brack = True
 
     if len(candidates) == 0:
         for choice in all_choices:  # e.g., A B C D
             if f"{choice} " in response:
                 candidates.append(choice)
 
+    for choice in all_choices:  # e.g., (A) (B) (C) (D)
+        if f"({choice})" in response:
+            candidates.append(choice)
+            ans_with_brack = True
+
     if len(candidates) == 0:
         for choice in all_choices:  # e.g., $A $B $C $D
             if f"${choice} " in response:
+                candidates.append(choice)
+
+    if len(candidates) == 0:
+        for choice in all_choices:  # e.g., A B C D
+            if f"{choice} " in response:
                 candidates.append(choice)
 
     if len(candidates) == 0:
